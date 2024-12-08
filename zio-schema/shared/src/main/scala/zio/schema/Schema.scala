@@ -748,34 +748,49 @@ object Schema extends SchemaPlatformSpecific with SchemaEquality {
 
     val leftSingleton  = "Left"
     val rightSingleton = "Right"
+    val bothSingleton  = "Both"
     override type Accessors[Lens[_, _, _], Prism[_, _, _], Traversal[_, _]] =
       (
-        Prism[rightSingleton.type, scala.util.Either[A, B], Right[Nothing, B]],
-        Prism[leftSingleton.type, scala.util.Either[A, B], Left[A, Nothing]]
+        Prism[rightSingleton.type, zio.schema.Fallback[A, B], zio.schema.Fallback.Right[A, B]],
+        Prism[leftSingleton.type, zio.schema.Fallback[A, B], zio.schema.Fallback.Left[A, B]],
+        Prism[bothSingleton.type, zio.schema.Fallback[A, B], zio.schema.Fallback.Both[A, B]]
       )
 
     override def annotate(annotation: Any): Schema.Fallback[A, B] =
       copy(annotations = (annotations :+ annotation).distinct)
 
-    val rightSchema: Schema[Right[Nothing, B]] = right.transform(b => Right(b), _.value)
-    val leftSchema: Schema[Left[A, Nothing]]   = left.transform(a => Left(a), _.value)
-
-    val toEnum: Enum2[Right[Nothing, B], Left[A, Nothing], scala.util.Either[A, B]] = Enum2(
-      TypeId.parse("zio.schema.Schema.Either"),
+    val toEnum: Enum3[
+      zio.schema.Fallback.Right[A, B],
+      zio.schema.Fallback.Left[A, B],
+      zio.schema.Fallback.Both[A, B],
+      zio.schema.Fallback[A, B]
+    ] = Enum3(
+      TypeId.parse("zio.schema.Schema.Fallback"),
       Case(
         "Right",
-        rightSchema,
-        _.asInstanceOf[Right[Nothing, B]],
-        _.asInstanceOf[scala.util.Either[A, B]],
-        (e: scala.util.Either[A, B]) => e.isRight,
+        right.transform(zio.schema.Fallback.Right(_), _.right),
+        _.asInstanceOf[zio.schema.Fallback.Right[A, B]],
+        _.asInstanceOf[zio.schema.Fallback[A, B]],
+        _.isInstanceOf[zio.schema.Fallback.Right[_, _]],
         Chunk.empty
       ),
       Case(
         "Left",
-        leftSchema,
-        _.asInstanceOf[Left[A, Nothing]],
-        _.asInstanceOf[scala.util.Either[A, B]],
-        (e: scala.util.Either[A, B]) => e.isLeft,
+        left.transform(zio.schema.Fallback.Left(_), _.left),
+        _.asInstanceOf[zio.schema.Fallback.Left[A, B]],
+        _.asInstanceOf[zio.schema.Fallback[A, B]],
+        _.isInstanceOf[zio.schema.Fallback.Left[_, _]],
+        Chunk.empty
+      ),
+      Case(
+        "Both",
+        tuple2(left, right).transform(
+          { case (a, b)                         => zio.schema.Fallback.Both(a, b) },
+          { case zio.schema.Fallback.Both(a, b) => (a, b) }
+        ),
+        _.asInstanceOf[zio.schema.Fallback.Both[A, B]],
+        _.asInstanceOf[zio.schema.Fallback[A, B]],
+        _.isInstanceOf[zio.schema.Fallback.Both[_, _]],
         Chunk.empty
       ),
       Chunk.empty
@@ -794,10 +809,11 @@ object Schema extends SchemaPlatformSpecific with SchemaEquality {
     override def makeAccessors(
       b: AccessorBuilder
     ): (
-      b.Prism[rightSingleton.type, scala.util.Either[A, B], Right[Nothing, B]],
-      b.Prism[leftSingleton.type, scala.util.Either[A, B], Left[A, Nothing]]
+      b.Prism[rightSingleton.type, zio.schema.Fallback[A, B], zio.schema.Fallback.Right[A, B]],
+      b.Prism[leftSingleton.type, zio.schema.Fallback[A, B], zio.schema.Fallback.Left[A, B]],
+      b.Prism[bothSingleton.type, zio.schema.Fallback[A, B], zio.schema.Fallback.Both[A, B]]
     ) =
-      b.makePrism(toEnum, toEnum.case1) -> b.makePrism(toEnum, toEnum.case2)
+      (b.makePrism(toEnum, toEnum.case1), b.makePrism(toEnum, toEnum.case2), b.makePrism(toEnum, toEnum.case3))
 
   }
 
